@@ -1,4 +1,4 @@
-"""
+r"""
 tailor_application.py
 
 A personal agent that drafts a tailored CV and cover letter for a specific
@@ -6,8 +6,10 @@ job, using your real career history and writing style, checks the draft
 against the job spec for gaps and weak ("so what?") achievements, and only
 produces final Word documents once you approve.
 
-HOW TO RUN:
-    python tailor_application.py
+HOW TO RUN (from this folder, after installing requirements.txt into .venv
+as the README describes):
+    .venv/bin/python tailor_application.py        (Mac or Linux)
+    .venv\Scripts\python tailor_application.py    (Windows)
 
 WHAT IT NEEDS:
     1. profile.json next to this script (copy profile.example.json and fill
@@ -38,6 +40,10 @@ NAVY = RGBColor(0x1F, 0x38, 0x64)
 DARK_TEXT = RGBColor(0x22, 0x22, 0x22)
 
 REQUIRED_PROFILE_FIELDS = ["full_name", "phone", "email", "location_line"]
+
+# How many times to ask the agent to resend an unusable final JSON block
+# before handing back to the user.
+MAX_FINAL_JSON_RETRIES = 2
 
 
 # ---------------------------------------------------------------------------
@@ -338,14 +344,17 @@ def collect_inputs():
 # ---------------------------------------------------------------------------
 
 def extract_final_json(text):
+    """Return (data, problem). problem says why a final block that was found
+    could not be read, so the agent can be asked to send it again."""
     match = re.search(r"===FINAL_JSON_START===(.*?)===FINAL_JSON_END===", text, re.DOTALL)
     if not match:
-        return None
-    raw = match.group(1).strip()
+        return None, None
+    # Models sometimes wrap the block in a markdown code fence.
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", match.group(1).strip())
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+        return json.loads(raw), None
+    except json.JSONDecodeError as e:
+        return None, f"it is not valid JSON ({e.msg}, line {e.lineno})"
 
 
 # ---------------------------------------------------------------------------
@@ -470,10 +479,20 @@ def render_cover_letter_docx(data, profile, out_path):
 
     paragraphs = list(data["cover_letter"]["paragraphs"])
     # Safety net: strip any sign off the model may have included, since it is
-    # added once, deliberately, below.
-    first_name_pattern = re.escape(profile["full_name"])
-    while paragraphs and re.search(rf"kind regards|{first_name_pattern}", paragraphs[-1], re.IGNORECASE):
-        paragraphs.pop()
+    # added once, deliberately, below. Only the sign off itself is removed, so
+    # a closing paragraph with one tacked on the end is kept.
+    sign_off = re.compile(
+        rf"\s*(?:kind regards\b.*|{re.escape(profile['full_name'])}\W*)$",
+        re.IGNORECASE | re.DOTALL,
+    )
+    while paragraphs:
+        trimmed = sign_off.sub("", paragraphs[-1])
+        if trimmed == paragraphs[-1]:
+            break
+        if trimmed:
+            paragraphs[-1] = trimmed
+        else:
+            paragraphs.pop()
 
     for para in paragraphs:
         add_body(doc, para, size=11, space_after=12)
@@ -516,10 +535,13 @@ async def main():
 
     website, role, job_spec = collect_inputs()
 
+    # `tools` is what limits the agent to these three. `allowed_tools` only
+    # skips the approval prompt. The agent reads untrusted web pages and job
+    # specs, so it must never have shell or file-writing tools.
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
+        tools=["Read", "WebSearch", "WebFetch"],
         allowed_tools=["Read", "WebSearch", "WebFetch"],
-        permission_mode="bypassPermissions",
         cwd=os.getcwd(),
     )
 
@@ -534,6 +556,7 @@ async def main():
     async with ClaudeSDKClient(options=options) as client:
         await client.query(first_message)
 
+        retries = 0
         while True:
             full_text = ""
             async for message in client.receive_response():
@@ -543,10 +566,26 @@ async def main():
                             print(block.text)
                             full_text += block.text
 
-            final_data = extract_final_json(full_text)
-            if final_data:
-                save_outputs(final_data, profile)
-                break
+            final_data, problem = extract_final_json(full_text)
+            if final_data is not None:
+                try:
+                    save_outputs(final_data, profile)
+                    break
+                except (KeyError, TypeError, AttributeError) as e:
+                    problem = f"it is missing a field or has one in the wrong shape ({type(e).__name__}: {e})"
+
+            if problem and retries < MAX_FINAL_JSON_RETRIES:
+                retries += 1
+                print(f"\nThe final output could not be used: {problem}. Asking the agent to send it again.")
+                await client.query(
+                    f"The final JSON block could not be used: {problem}. Output the "
+                    f"complete final JSON block again, with every field, in the exact "
+                    f"format from your instructions, and nothing else."
+                )
+                continue
+            if problem:
+                print(f"\nThe final output still could not be used: {problem}.")
+                print("Reply to the agent to try again, or type quit.")
 
             user_reply = input("\nYou: ").strip()
             if user_reply.lower() in ("quit", "exit"):
