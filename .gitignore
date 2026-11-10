@@ -17,3 +17,4 @@ interview-prep-agent/.mcp.json
 .env
 *.token
 __pycache__/
+.venv/

@@ -1,0 +1,4 @@
+# Tested with these versions. The upper bounds stop a future breaking release
+# from being installed automatically.
+claude-agent-sdk>=0.2.174,<0.3
+python-docx>=1.2,<2

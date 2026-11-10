@@ -11,7 +11,7 @@ This guide assumes you have never used a terminal. It takes about 15 minutes.
 | Python 3.10 or newer | The CV and cover letter agent | Yes, for that agent |
 | Claude Code | The interview prep agent, and the CV agent's login | Yes, for both agents |
 | A Claude account on a paid plan (Pro, Max, Team, Enterprise) or an Anthropic Console account | Claude Code. The free Claude plan does not include it. | Yes |
-| Python packages `claude-agent-sdk` and `python-docx` | The CV and cover letter agent | Yes, for that agent |
+| Python packages `claude-agent-sdk` and `python-docx` (listed in `cv-cover-letter-agent/requirements.txt`) | The CV and cover letter agent | Yes, for that agent |
 | Node.js | Only if you want the optional Playwright browser tool for the interview prep agent | Optional |
 | Git for Windows | Optional extra for Claude Code on Windows | Optional |
 
@@ -96,11 +96,29 @@ Follow the browser prompts to sign in with your Claude account. Once you see the
 
 ## 5. Install the Python packages (CV and cover letter agent)
 
+The packages go into a private folder called `.venv` inside `cv-cover-letter-agent`, so they cannot clash with anything else on your computer. Installing them system-wide with a plain `pip install` fails on many Macs and Linux systems with an `externally-managed-environment` error, so use these commands instead. From the repo folder, run:
+
+**Windows (PowerShell):**
+
 ```powershell
-pip install claude-agent-sdk python-docx
+cd cv-cover-letter-agent
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+cd ..
 ```
 
-On Mac, use `pip3` instead of `pip` if `pip` is not found. On Windows, if `pip` is not found, use `py -m pip install claude-agent-sdk python-docx`.
+If `python` is not recognised, use `py -m venv .venv` for the second line.
+
+**Mac or Linux:**
+
+```bash
+cd cv-cover-letter-agent
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+cd ..
+```
+
+On Linux, if the second line says `ensurepip is not available`, install your distribution's `python3-venv` package and run it again.
 
 The `claude-agent-sdk` package includes what it needs to run, so you do not have to install anything else for it. If the script ever reports a login or authentication error, see the [Claude Agent SDK documentation](https://platform.claude.com/docs/en/agent-sdk/python).
 
@@ -122,5 +140,5 @@ Go back to the main [README](../README.md) and continue from Step 3.
 
 - **"command not found" or "not recognised":** close the terminal and open a new one. Installers only update your system path for new windows.
 - **PowerShell shows `'irm' is not recognized`:** you are in Command Prompt, not PowerShell. Open PowerShell instead.
-- **Permission errors with pip on Mac:** use `pip3 install --user claude-agent-sdk python-docx`.
+- **`externally-managed-environment` or permission errors from pip:** you ran `pip` directly. Use the `.venv` commands in step 5 instead.
 - **Anything else:** paste the exact error message into any AI chat and ask it to explain what to do. Tell it your operating system.
